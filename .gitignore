@@ -1,7 +1,10 @@
-# Byte-compiled / optimized / DLL files
+Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
 *$py.class
+
+# seizure prediction data
+seizurePrediction_data/
 
 # C extensions
 *.so
