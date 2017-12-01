@@ -1,3 +1,8 @@
+# %%
+#############################################################################
+# setup working environement
+% cd C:\Users\djcald.CSENETID\SharedCode\seizurePrediction
+% matplotlib inline
 import numpy as np
 import matplotlib.pyplot as plt
 import h5py
@@ -12,18 +17,21 @@ from sklearn import ensemble
 from sklearn.model_selection import KFold
 from sklearn.model_selection import train_test_split
 from sklearn.grid_search import GridSearchCV
+from sklearn.metrics import average_precision_score
+from sklearn.metrics import precision_recall_curve
 
-from environment_info import *
-from patient_info import *
-#import environment_info
 
-# now we have data_dir, scripts_dir, and root_dir
+from metaData import environment_info as env_info
+from metaData import patient_info as pat_info
 
-# functions to convert load and process the data
+
 sns.set()
 plt.rcParams["axes.grid"] = True
 plt.rcParams["axes.edgecolor"] = "0.15"
 plt.rcParams["axes.linewidth"]  = 1.25
+#############################################################################
+# define functions of interest
+#%%
 
 def conv_montage(file):
     montage_array = (''.join([chr(i) for i in file['Montage']['MontageString']])).split(' ')
@@ -62,20 +70,21 @@ def one_hot_encode(electrodes,num_chans):
     one_hot_vec[one_hot_vec==0] = 0
 
     return one_hot_vec
-
-# iterate over the subjects
+#############################################################################
 
 # iterate over all patients
+# %%
 
-for ind_int in np.arange(1,len(patient_names)):
+# preprocessing
+for ind_int in np.arange(1,len(pat_info.patient_names)):
 
-    path_int = os.path.join(data_dir,patient_names[ind_int]+data_file_suffix)
+    path_int = os.path.join(env_info.data_dir,pat_info.patient_names[ind_int]+pat_info.data_file_suffix)
 
     # load in the file
     f = h5py.File(path_int,'r')
 
     # patient name
-    patient_name = patient_names[ind_int]
+    patient_name = pat_info.patient_names[ind_int]
 
     # get the number of channels
     num_chans = get_num_chans(f)
@@ -85,7 +94,7 @@ for ind_int in np.arange(1,len(patient_names)):
         num_chans = 64
 
     # seizure electrodes
-    seizure_elec = one_hot_encode(seizure_electrodes[ind_int],num_chans)
+    seizure_elec = one_hot_encode(pat_info.seizure_electrodes[ind_int],num_chans)
 
     # generate a random sequence for the number of channels
 
@@ -110,7 +119,7 @@ for ind_int in np.arange(1,len(patient_names)):
 
     random_seq_data = np.reshape(np.repeat(random_seq_arr,p_t_t.shape[2],axis=1),np.array(p_t_t.shape))
 
-    shuff_data = zeros((p_t_t.shape))
+    shuff_data = np.zeros((p_t_t.shape))
 
     for i in np.arange(p_t_t.shape[0]):
         shuff_data[i,:] = p_t_t[i,random_seq_arr[i]]
@@ -146,12 +155,24 @@ test_data_std = np.repeat(np.array([(np.std(train_data,axis=0))]).T,test_data.sh
 # mean subtract and normalize
 train_data = (train_data - train_data_average)/train_data_std
 test_data = (test_data - test_data_average)/test_data_std
-
+###########################################################################
+# %%
 # logistic regression
+with sns.axes_style("white"):
+    fig1,ax1 = plt.subplots(dpi=600)
+    ax1.grid(False)
+    ax1.get_xaxis().set_visible(False)
+    ax1.get_yaxis().set_visible(False)
+    sns.despine(left=True,bottom=True)
 
-fig,ax = plt.subplots(dpi=600)
+    fig2,ax2 = plt.subplots(dpi=600)
+    ax2.grid(False)
+    ax2.get_xaxis().set_visible(False)
+    ax2.get_yaxis().set_visible(False)
+    sns.despine(left=True,bottom=True)
 
-for i, norm_val in enumerate((100, 10,1,0.1,0.01)):
+sparse_vec = [100,10,1,0.1,0.01]
+for i, norm_val in enumerate(sparse_vec):
 
     LR_mod_l1 = LogisticRegression(C=norm_val,penalty='l1',tol=0.01,class_weight="balanced")
     LR_mod_l1.fit(train_data,train_labels)
@@ -167,7 +188,12 @@ for i, norm_val in enumerate((100, 10,1,0.1,0.01)):
     print("train precision with L1 penalty: %.4f" % metrics.precision_score(train_pred,train_labels))
     print("test precision with L1 penalty: %.4f" % metrics.precision_score(test_pred,test_labels))
 
+    test_score = LR_mod_l1.decision_function(test_data)
+    average_precision_l1 = average_precision_score(test_labels, test_score)
 
+    print('Average precision-recall score: {0:0.2f}'.format(average_precision_l1))
+    precision_l1, recall_l1, _ = precision_recall_curve(test_labels, test_score)
+###########################################################################
     LR_mod_l2 = LogisticRegression(C=norm_val,penalty='l2',tol=0.01,class_weight="balanced")
     LR_mod_l2.fit(train_data,train_labels)
     LR_mod_l2_coeff = LR_mod_l2.coef_.ravel()
@@ -178,11 +204,48 @@ for i, norm_val in enumerate((100, 10,1,0.1,0.01)):
 
     train_pred = LR_mod_l2.predict(train_data)
     test_pred = LR_mod_l2.predict(test_data)
-    print("train precision with L1 penalty: %.4f" % metrics.precision_score(train_pred,train_labels))
-    print("test precision with L1 penalty: %.4f \n" % metrics.precision_score(test_pred,test_labels))
+    print("train precision with L2 penalty: %.4f" % metrics.precision_score(train_pred,train_labels))
+    print("test precision with L2 penalty: %.4f \n" % metrics.precision_score(test_pred,test_labels))
 
-    l1_plot = plt.subplot(5, 2, 2 * i + 1)
-    l2_plot = plt.subplot(5, 2, 2 * (i + 1))
+    test_score = LR_mod_l1.decision_function(test_data)
+    average_precision_l2 = average_precision_score(test_labels, test_score)
+
+    print('Average precision-recall score: {0:0.2f}'.format(average_precision))
+    precision_l2, recall_l2, _ = precision_recall_curve(test_labels, test_score)
+
+    l1_plot = fig2.add_subplot(5, 2, 2 * i + 1)
+    l2_plot = fig2.add_subplot(5, 2, 2 * (i + 1))
+    if i == 0:
+        l1_plot.set_title("L1 penalty")
+        l2_plot.set_title("L2 penalty")
+    if i == (len(sparse_vec) - 1):
+        l2_plot.set_xlabel('Recall')
+        l2_plot.set_ylabel('Precision')
+
+
+    l1_plot.step(recall_l1, precision_l1, color='b', alpha=0.2,where='post')
+    l1_plot.fill_between(recall_l1, precision_l1, step='post', alpha=0.2,color='b')
+
+    l1_plot.set_ylim([0.0, 1.05])
+    l1_plot.set_xlim([0.0, 1.0])
+    #l1_plot.title('2-class Precision-Recall curve: AP={0:0.2f}'.format(average_precision_l1))
+
+    l2_plot.step(recall_l2, precision_l2, color='b', alpha=0.2,where='post')
+    l2_plot.fill_between(recall_l2, precision_l2, step='post', alpha=0.2,color='b')
+    l2_plot.set_ylim([0.0, 1.05])
+    l2_plot.set_xlim([0.0, 1.0])
+
+    l1_plot.set_xticks(())
+    l1_plot.set_yticks(())
+    l2_plot.set_xticks(())
+    l2_plot.set_yticks(())
+
+    #l2_plot.title('2-class Precision-Recall curve: AP={0:0.2f}'.format(average_precision_l2))
+    #fig2.text(-3, 2, "C = {:.2f}".format(norm_val))
+
+###########################################################################
+    l1_plot = fig1.add_subplot(5, 2, 2 * i + 1)
+    l2_plot = fig1.add_subplot(5, 2, 2 * (i + 1))
     if i == 0:
         l1_plot.set_title("L1 penalty")
         l2_plot.set_title("L2 penalty")
@@ -191,20 +254,20 @@ for i, norm_val in enumerate((100, 10,1,0.1,0.01)):
                    cmap='binary', vmax=1, vmin=0)
     l2_plot.imshow(np.abs(LR_mod_l2_coeff.reshape(1, 12)), interpolation='nearest',
                    cmap='binary', vmax=1, vmin=0)
-    plt.text(-3, 2, "C = {:.2f}".format(norm_val))
+    #fig1.text(-3, 2, "C = {:.2f}".format(norm_val))
 
     l1_plot.set_xticks(())
     l1_plot.set_yticks(())
     l2_plot.set_xticks(())
     l2_plot.set_yticks(())
 
-cbar = fig.colorbar(cax, ticks=[-1, 0, 1], orientation='vertical')
+#cbar = fig1.colorbar(cax, ticks=[-1, 0, 1], orientation='vertical')
 
 plt.gcf
-plt.savefig('milestone_different_c_comb.png')
-
+#plt.savefig('milestone_different_c_comb.png')
+###############################################################################
 # kernel classification
-
+# %%
 for kernel in ('linear', 'poly', 'rbf'):
 
     svm_mod = svm.SVC(kernel=kernel,class_weight='')
@@ -220,7 +283,7 @@ for kernel in ('linear', 'poly', 'rbf'):
     print("test precision {:.4f} for {} kernel \n".format(metrics.precision_score(test_pred,test_labels),kernel))
 
 # gradient boosting
-
+# %%
 # Fit classifier with out-of-bag estimates
 
 params = {'n_estimators': 1200, 'max_depth': 4, 'subsample': 0.5,
@@ -255,7 +318,7 @@ plt.yticks(pos, np.array(p_n)[sorted_idx])
 plt.xlabel('Relative Importance')
 plt.title('Variable Importance')
 plt.show()
-plt.savefig('gradientboost_feature_importance')
+#plt.savefig('gradientboost_feature_importance')
 
 # gradient boosting optimization
 

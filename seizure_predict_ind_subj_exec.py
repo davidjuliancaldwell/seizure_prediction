@@ -1,3 +1,6 @@
+% cd C:\Users\djcald.CSENETID\SharedCode\seizurePrediction
+# %%
+
 import numpy as np
 import matplotlib.pyplot as plt
 import h5py
@@ -13,18 +16,15 @@ from sklearn.model_selection import KFold
 from sklearn.model_selection import train_test_split
 from sklearn.grid_search import GridSearchCV
 
-from environment_info import *
-from patient_info import *
-#import environment_info
+from metaData import environment_info as env_info
+from metaData import patient_info as pat_info
 
-# now we have data_dir, scripts_dir, and root_dir
-
-# functions to convert load and process the data
 sns.set()
 plt.rcParams["axes.grid"] = True
 plt.rcParams["axes.edgecolor"] = "0.15"
 plt.rcParams["axes.linewidth"]  = 1.25
 
+# %%
 def conv_montage(file):
     montage_array = (''.join([chr(i) for i in file['Montage']['MontageString']])).split(' ')
     return montage_array
@@ -64,16 +64,17 @@ def one_hot_encode(electrodes,num_chans):
     return one_hot_vec
 # iterate over the subjects
 
-# define path of interest for a particular patient
-for ind_int in np.arange(1,len(patient_names)):
+# %%
+## define path of interest for a particular patient
+for ind_int in np.arange(1,len(pat_info.patient_names)):
 
-    path_int = os.path.join(data_dir,patient_names[ind_int]+data_file_suffix)
+    path_int = os.path.join(env_info.data_dir,pat_info.patient_names[ind_int]+pat_info.data_file_suffix)
 
     # load in the file
     f = h5py.File(path_int,'r')
 
     # patient name
-    patient_name = patient_names[ind_int]
+    patient_name = pat_info.patient_names[ind_int]
 
 
     # get the number of channels
@@ -84,7 +85,7 @@ for ind_int in np.arange(1,len(patient_names)):
         num_chans = 64
 
     # seizure electrodes
-    seizure_elec = one_hot_encode(seizure_electrodes[ind_int],num_chans)
+    seizure_elec = one_hot_encode(pat_info.seizure_electrodes[ind_int],num_chans)
 
     # generate a random sequence for the number of channels
 
@@ -109,7 +110,7 @@ for ind_int in np.arange(1,len(patient_names)):
 
     random_seq_data = np.reshape(np.repeat(random_seq_arr,p_t_t.shape[2],axis=1),np.array(p_t_t.shape))
 
-    shuff_data = zeros((p_t_t.shape))
+    shuff_data = np.zeros((p_t_t.shape))
 
     for i in np.arange(p_t_t.shape[0]):
         shuff_data[i,:] = p_t_t[i,random_seq_arr[i]]
@@ -182,7 +183,7 @@ for ind_int in np.arange(1,len(patient_names)):
         l2_plot.set_xticks(())
         l2_plot.set_yticks(())
 
-    plt.savefig('milestone_different_c_ind.png')
+    #plt.savefig('milestone_different_c_ind.png')
 
 
     svm_mod = svm.SVC(kernel='rbf')
