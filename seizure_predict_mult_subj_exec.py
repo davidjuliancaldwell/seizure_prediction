@@ -1,7 +1,9 @@
 # %%
 #############################################################################
 # setup working environement
-% cd C:\Users\djcald.CSENETID\SharedCode\seizurePrediction
+#% cd C:\Users\djcald.CSENETID\SharedCode\seizurePrediction
+% cd C:\Users\David\Research\seizure_prediction
+
 % matplotlib inline
 import numpy as np
 import matplotlib.pyplot as plt
@@ -19,6 +21,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.grid_search import GridSearchCV
 from sklearn.metrics import average_precision_score
 from sklearn.metrics import precision_recall_curve
+from sklearn.metrics import roc_curve, auc
 
 
 from metaData import environment_info as env_info
@@ -75,8 +78,10 @@ def one_hot_encode(electrodes,num_chans):
 # iterate over all patients
 # %%
 
+num_patients = len(pat_info.patient_names)
+num_chans_array = np.zeros(num_patients)
 # preprocessing
-for ind_int in np.arange(1,len(pat_info.patient_names)):
+for ind_int in np.arange(0,num_patients):
 
     path_int = os.path.join(env_info.data_dir,pat_info.patient_names[ind_int]+pat_info.data_file_suffix)
 
@@ -114,17 +119,27 @@ for ind_int in np.arange(1,len(pat_info.patient_names)):
 
     p_t,p_n = convert_power_data(f,num_chans)
     c_corr_t,c_corr_n,c_plv_t,c_plv_n,c_psi_t,c_psi_n = convert_connectivity_data(f,num_chans)
-
     p_t_t = np.transpose(p_t,(0,2,1))
 
-    random_seq_data = np.reshape(np.repeat(random_seq_arr,p_t_t.shape[2],axis=1),np.array(p_t_t.shape))
+    c_psi_t_t = np.transpose(c_psi_t,(0,2,1,3))
+    c_psi_t_t = c_psi_t_t.reshape(c_psi_t_t.shape[0],c_psi_t_t.shape[1],-1)
+    c_corr_t_t = np.transpose(c_corr_t,(0,2,1,3))
+    c_corr_t_t = c_corr_t_t.reshape(c_corr_t_t.shape[0],c_corr_t_t.shape[1],-1)
+    c_plv_t_t = np.transpose(c_plv_t,(0,2,1,3))
+    c_plv_t_t = c_plv_t_t.reshape(c_plv_t_t.shape[0],c_plv_t_t.shape[1],-1)
 
-    shuff_data = np.zeros((p_t_t.shape))
+    data_features = np.concatenate((p_t_t,c_psi_t_t,c_corr_t_t,c_plv_t_t),axis=2)
+    data_features.shape
+    ind_int
+    random_seq_arr.shape
+    random_seq_data = np.reshape(np.repeat(random_seq_arr,data_features.shape[2],axis=1),np.array(data_features.shape))
+    random_seq_data.shape
+    shuff_data = np.zeros((data_features.shape))
 
-    for i in np.arange(p_t_t.shape[0]):
-        shuff_data[i,:] = p_t_t[i,random_seq_arr[i]]
+    for i in np.arange(data_features.shape[0]):
+        shuff_data[i,:] = data_features[i,random_seq_arr[i]]
 
-    if ind_int == 1:
+    if ind_int == 0:
         shuff_data_all = shuff_data.reshape((shuff_data.shape[0]*shuff_data.shape[1],shuff_data.shape[2]))
         seizure_elec_all = seizure_elec_shuff
 
@@ -133,6 +148,8 @@ for ind_int in np.arange(1,len(pat_info.patient_names)):
     shuff_data_all = np.vstack((shuff_data_all,shuff_data))
     seizure_elec_all = np.hstack((seizure_elec_all,seizure_elec_shuff))
 
+shuff_data_all.shape
+shuff_data.shape
 # train and test split
 
 total_elecs = seizure_elec_all.shape[0]
@@ -171,6 +188,12 @@ with sns.axes_style("white"):
     ax2.get_yaxis().set_visible(False)
     sns.despine(left=True,bottom=True)
 
+    fig3,ax3 = plt.subplots(dpi=600)
+    ax3.grid(False)
+    ax3.get_xaxis().set_visible(False)
+    ax3.get_yaxis().set_visible(False)
+    sns.despine(left=True,bottom=True)
+
 sparse_vec = [100,10,1,0.1,0.01]
 for i, norm_val in enumerate(sparse_vec):
 
@@ -188,11 +211,14 @@ for i, norm_val in enumerate(sparse_vec):
     print("train precision with L1 penalty: %.4f" % metrics.precision_score(train_pred,train_labels))
     print("test precision with L1 penalty: %.4f" % metrics.precision_score(test_pred,test_labels))
 
-    test_score = LR_mod_l1.decision_function(test_data)
-    average_precision_l1 = average_precision_score(test_labels, test_score)
+    test_score_l1 = LR_mod_l1.decision_function(test_data)
+    average_precision_l1 = average_precision_score(test_labels, test_score_l1)
 
     print('Average precision-recall score: {0:0.2f}'.format(average_precision_l1))
-    precision_l1, recall_l1, _ = precision_recall_curve(test_labels, test_score)
+    precision_l1, recall_l1, _ = precision_recall_curve(test_labels, test_score_l1)
+
+    fpr_l1, tpr_l1, _ = roc_curve(test_labels, test_score_l1)
+    roc_auc_l1 = auc(fpr_l1, tpr_l1)
 ###########################################################################
     LR_mod_l2 = LogisticRegression(C=norm_val,penalty='l2',tol=0.01,class_weight="balanced")
     LR_mod_l2.fit(train_data,train_labels)
@@ -207,11 +233,14 @@ for i, norm_val in enumerate(sparse_vec):
     print("train precision with L2 penalty: %.4f" % metrics.precision_score(train_pred,train_labels))
     print("test precision with L2 penalty: %.4f \n" % metrics.precision_score(test_pred,test_labels))
 
-    test_score = LR_mod_l1.decision_function(test_data)
-    average_precision_l2 = average_precision_score(test_labels, test_score)
+    test_score_l2 = LR_mod_l2.decision_function(test_data)
+    average_precision_l2 = average_precision_score(test_labels, test_score_l2)
 
-    print('Average precision-recall score: {0:0.2f}'.format(average_precision))
-    precision_l2, recall_l2, _ = precision_recall_curve(test_labels, test_score)
+    print('Average precision-recall score: {0:0.2f}'.format(average_precision_l2))
+    precision_l2, recall_l2, _ = precision_recall_curve(test_labels, test_score_l2)
+
+    fpr_l2, tpr_l2, _ = roc_curve(test_labels, test_score_l2)
+    roc_auc_l2 = auc(fpr_l2, tpr_l2)
 
     l1_plot = fig2.add_subplot(5, 2, 2 * i + 1)
     l2_plot = fig2.add_subplot(5, 2, 2 * (i + 1))
@@ -219,19 +248,24 @@ for i, norm_val in enumerate(sparse_vec):
         l1_plot.set_title("L1 penalty")
         l2_plot.set_title("L2 penalty")
     if i == (len(sparse_vec) - 1):
-        l2_plot.set_xlabel('Recall')
-        l2_plot.set_ylabel('Precision')
+        l2_plot.set_xlabel('False Positive Rate')
+        l2_plot.set_ylabel('True Positive Rate')
 
 
-    l1_plot.step(recall_l1, precision_l1, color='b', alpha=0.2,where='post')
-    l1_plot.fill_between(recall_l1, precision_l1, step='post', alpha=0.2,color='b')
 
+    lw = 2
+    l1_plot.plot(fpr_l1, tpr_l1, color='darkorange',
+         lw=lw, label='ROC curve (area = %0.2f)' % roc_auc_l1)
+    l1_plot.plot([0, 1], [0, 1], color='navy', lw=lw, linestyle='--')
     l1_plot.set_ylim([0.0, 1.05])
     l1_plot.set_xlim([0.0, 1.0])
     #l1_plot.title('2-class Precision-Recall curve: AP={0:0.2f}'.format(average_precision_l1))
 
-    l2_plot.step(recall_l2, precision_l2, color='b', alpha=0.2,where='post')
-    l2_plot.fill_between(recall_l2, precision_l2, step='post', alpha=0.2,color='b')
+
+    lw = 2
+    l2_plot.plot(fpr_l2, tpr_l2, color='darkorange',
+         lw=lw, label='ROC curve (area = %0.2f)' % roc_auc_l2)
+    l2_plot.plot([0, 1], [0, 1], color='navy', lw=lw, linestyle='--')
     l2_plot.set_ylim([0.0, 1.05])
     l2_plot.set_xlim([0.0, 1.0])
 
@@ -240,7 +274,26 @@ for i, norm_val in enumerate(sparse_vec):
     l2_plot.set_xticks(())
     l2_plot.set_yticks(())
 
-    #l2_plot.title('2-class Precision-Recall curve: AP={0:0.2f}'.format(average_precision_l2))
+    l1_plot = fig3.add_subplot(5, 2, 2 * i + 1)
+    l2_plot = fig3.add_subplot(5, 2, 2 * (i + 1))
+    if i == 0:
+        l1_plot.set_title("L1 penalty")
+        l2_plot.set_title("L2 penalty")
+    if i == (len(sparse_vec) - 1):
+        l2_plot.set_xlabel('Recall')
+        l2_plot.set_ylabel('Precision')
+    l1_plot.step(recall_l1, precision_l1, color='b', alpha=0.2,where='post')
+    l1_plot.fill_between(recall_l1, precision_l1, step='post', alpha=0.2,color='b')
+    l1_plot.set_ylim([0.0, 1.05])
+    l1_plot.set_xlim([0.0, 1.0])
+    l2_plot.step(recall_l2, precision_l2, color='b', alpha=0.2,where='post')
+    l2_plot.fill_between(recall_l2, precision_l2, step='post', alpha=0.2,color='b')
+    l2_plot.set_ylim([0.0, 1.05])
+    l2_plot.set_xlim([0.0, 1.0])
+    l1_plot.set_xticks(())
+    l1_plot.set_yticks(())
+    l2_plot.set_xticks(())
+    l2_plot.set_yticks(())
     #fig2.text(-3, 2, "C = {:.2f}".format(norm_val))
 
 ###########################################################################
@@ -268,9 +321,36 @@ plt.gcf
 ###############################################################################
 # kernel classification
 # %%
-for kernel in ('linear', 'poly', 'rbf'):
 
-    svm_mod = svm.SVC(kernel=kernel,class_weight='')
+# decision theory
+# maximize probability of detection under constraint
+# classifier with decision rule - move predictor linearly
+# move that threshold until false alarm rate is ...
+# tune weight of loss function until you get desired effect
+# binary classification, hinge function, put big weight on that one
+# search over differnet weight values until you get the false alarm rate that you want
+# optimizing precision recall - pearson classifacation
+#
+# for neural nets with time series
+# sliding window
+# do a cnn on finite window
+
+with sns.axes_style("white"):
+    fig4,ax4 = plt.subplots(dpi=600)
+    ax4.grid(False)
+    ax4.get_xaxis().set_visible(False)
+    ax4.get_yaxis().set_visible(False)
+    sns.despine(left=True,bottom=True)
+
+    fig5,ax5 = plt.subplots(dpi=600)
+    ax5.grid(False)
+    ax5.get_xaxis().set_visible(False)
+    ax5.get_yaxis().set_visible(False)
+    sns.despine(left=True,bottom=True)
+
+for ind,kernel in enumerate(('linear', 'poly', 'rbf')):
+
+    svm_mod = svm.SVC(kernel=kernel,class_weight='balanced')
     svm_mod.fit(train_data,train_labels)
     svm_train_score = svm_mod.score(train_data,train_labels)
     svm_test_score = svm_mod.score(test_data,test_labels)
@@ -279,8 +359,40 @@ for kernel in ('linear', 'poly', 'rbf'):
 
     train_pred = svm_mod.predict(train_data)
     test_pred = svm_mod.predict(test_data)
+    test_pred
     print("train precision {:.4f} for {} kernel".format(metrics.precision_score(train_pred,train_labels),kernel))
-    print("test precision {:.4f} for {} kernel \n".format(metrics.precision_score(test_pred,test_labels),kernel))
+    print("test precision {:.4f} for {} kernel".format(metrics.precision_score(test_pred,test_labels),kernel))
+
+    test_score_svm = svm_mod.decision_function(test_data)
+    average_precision_svm = average_precision_score(test_labels, test_score_svm)
+
+    print('Average precision-recall score: {0:0.2f} \n'.format(average_precision_svm))
+    precision_svm, recall_svm, thresh_svm = precision_recall_curve(test_labels, test_score_svm)
+    svm_plot = fig4.add_subplot(3, 1, ind+1)
+    fpr, tpr, _ = roc_curve(test_labels, test_score_svm)
+    roc_auc = auc(fpr, tpr)
+
+    lw = 2
+    svm_plot.plot(fpr, tpr, color='darkorange',
+         lw=lw, label='ROC curve (area = %0.2f)' % roc_auc)
+    svm_plot.plot([0, 1], [0, 1], color='navy', lw=lw, linestyle='--')
+
+    #svm_plot.step(recall_svm, precision_svm, color='b', alpha=0.2,where='post')
+    #svm_plot.fill_between(recall_svm, precision_svm, step='post', alpha=0.2,color='b')
+    svm_plot.set_ylim([0.0, 1.05])
+    svm_plot.set_xlim([0.0, 1.0])
+    svm_plot.set_xticks(())
+    svm_plot.set_yticks(())
+
+    svm_plot = fig5.add_subplot(3, 1, ind+1)
+
+    lw = 2
+    svm_plot.step(recall_svm, precision_svm, color='b', alpha=0.2,where='post')
+    svm_plot.fill_between(recall_svm, precision_svm, step='post', alpha=0.2,color='b')
+    svm_plot.set_ylim([0.0, 1.05])
+    svm_plot.set_xlim([0.0, 1.0])
+    svm_plot.set_xticks(())
+    svm_plot.set_yticks(())
 
 # gradient boosting
 # %%
@@ -320,6 +432,7 @@ plt.title('Variable Importance')
 plt.show()
 #plt.savefig('gradientboost_feature_importance')
 
+# %%
 # gradient boosting optimization
 
 param_grid = {'learning_rate': [0.1, 0.05, 0.02, 0.01],

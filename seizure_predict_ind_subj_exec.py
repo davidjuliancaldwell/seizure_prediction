@@ -1,4 +1,5 @@
-% cd C:\Users\djcald.CSENETID\SharedCode\seizurePrediction
+# % cd C:\Users\djcald.CSENETID\SharedCode\seizurePrediction
+% cd C:\Users\David\Research\seizure_prediction
 # %%
 
 import numpy as np
