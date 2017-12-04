@@ -7,6 +7,7 @@
 % matplotlib inline
 import numpy as np
 import matplotlib.pyplot as plt
+import scipy as scipy
 import h5py
 #import mne
 import os
@@ -98,6 +99,8 @@ for ind_int in np.arange(0,num_patients):
     if patient_name in ['fca96e','78283a', '294e1c']:
         num_chans = 64
 
+    num_chans_array[ind_int] = num_chans
+    num_chans_array = num_chans_array.astype(int)
     # seizure electrodes
     seizure_elec = one_hot_encode(pat_info.seizure_electrodes[ind_int],num_chans)
 
@@ -121,19 +124,23 @@ for ind_int in np.arange(0,num_patients):
     c_corr_t,c_corr_n,c_plv_t,c_plv_n,c_psi_t,c_psi_n = convert_connectivity_data(f,num_chans)
     p_t_t = np.transpose(p_t,(0,2,1))
 
-    c_psi_t_t = np.transpose(c_psi_t,(0,2,1,3))
-    c_psi_t_t = c_psi_t_t.reshape(c_psi_t_t.shape[0],c_psi_t_t.shape[1],-1)
-    c_corr_t_t = np.transpose(c_corr_t,(0,2,1,3))
-    c_corr_t_t = c_corr_t_t.reshape(c_corr_t_t.shape[0],c_corr_t_t.shape[1],-1)
-    c_plv_t_t = np.transpose(c_plv_t,(0,2,1,3))
-    c_plv_t_t = c_plv_t_t.reshape(c_plv_t_t.shape[0],c_plv_t_t.shape[1],-1)
+    c_corr_t_t = np.concatenate((np.mean(c_corr_t,axis=3),scipy.stats.skew(c_corr_t,axis=3),scipy.stats.kurtosis(c_corr_t,axis=3) ), axis = 1)
+    c_psi_t_t =  np.concatenate((np.mean(c_psi_t,axis=3),scipy.stats.skew(c_psi_t,axis=3),scipy.stats.kurtosis(c_psi_t,axis=3) ), axis = 1)
+    c_plv_t_t =  np.concatenate((np.mean(c_plv_t,axis=3),scipy.stats.skew(c_plv_t,axis=3),scipy.stats.kurtosis(c_plv_t,axis=3) ), axis = 1)
+
+    c_corr_t_t = np.transpose(c_corr_t_t,(0,2,1))
+    c_psi_t_t = np.transpose(c_psi_t_t,(0,2,1))
+    c_plv_t_t = np.transpose(c_plv_t_t,(0,2,1))
+
+    #c_psi_t_t = np.transpose(c_psi_t,(0,2,1,3))
+    #c_psi_t_t = c_psi_t_t.reshape(c_psi_t_t.shape[0],c_psi_t_t.shape[1],-1)
+    #c_corr_t_t = np.transpose(c_corr_t,(0,2,1,3))
+    #_corr_t_t = c_corr_t_t.reshape(c_corr_t_t.shape[0],c_corr_t_t.shape[1],-1)
+    #c_plv_t_t = np.transpose(c_plv_t,(0,2,1,3))
+    #c_plv_t_t = c_plv_t_t.reshape(c_plv_t_t.shape[0],c_plv_t_t.shape[1],-1)
 
     data_features = np.concatenate((p_t_t,c_psi_t_t,c_corr_t_t,c_plv_t_t),axis=2)
-    data_features.shape
-    ind_int
-    random_seq_arr.shape
     random_seq_data = np.reshape(np.repeat(random_seq_arr,data_features.shape[2],axis=1),np.array(data_features.shape))
-    random_seq_data.shape
     shuff_data = np.zeros((data_features.shape))
 
     for i in np.arange(data_features.shape[0]):
@@ -148,12 +155,11 @@ for ind_int in np.arange(0,num_patients):
     shuff_data_all = np.vstack((shuff_data_all,shuff_data))
     seizure_elec_all = np.hstack((seizure_elec_all,seizure_elec_shuff))
 
-shuff_data_all.shape
-shuff_data.shape
 # train and test split
 
 total_elecs = seizure_elec_all.shape[0]
-n_leave = 192
+n_leave = num_chans_array[leave]
+index_train = np.array([ np.arange(0,np.sum(num_chans_array[0:leave])), np.arange(np.sum(num_chans_array[0:leave])+n_leave,np.sum(num_chans_array))])
 train_data = shuff_data_all[0:-n_leave,:]
 test_data = shuff_data_all[total_elecs-n_leave:,:]
 train_labels = seizure_elec_all[0:-n_leave]
@@ -303,9 +309,10 @@ for i, norm_val in enumerate(sparse_vec):
         l1_plot.set_title("L1 penalty")
         l2_plot.set_title("L2 penalty")
 
-    cax = l1_plot.imshow(np.abs(LR_mod_l1_coeff.reshape(1, 12)), interpolation='nearest',
+
+    cax = l1_plot.imshow(np.abs(LR_mod_l1_coeff.reshape(1, LR_mod_l1_coeff.shape[0])), interpolation='nearest',
                    cmap='binary', vmax=1, vmin=0)
-    l2_plot.imshow(np.abs(LR_mod_l2_coeff.reshape(1, 12)), interpolation='nearest',
+    l2_plot.imshow(np.abs(LR_mod_l2_coeff.reshape(1, LR_mod_l2_coeff.shape[0])), interpolation='nearest',
                    cmap='binary', vmax=1, vmin=0)
     #fig1.text(-3, 2, "C = {:.2f}".format(norm_val))
 
