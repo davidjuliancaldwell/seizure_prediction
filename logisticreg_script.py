@@ -28,6 +28,7 @@ from sklearn.metrics import roc_curve, auc
 from sklearn.model_selection import GridSearchCV
 from sklearn.model_selection import cross_validate
 from sklearn.model_selection import ParameterGrid
+from sklearn.metrics import roc_auc_score
 
 
 from metaData import environment_info as env_info
@@ -226,7 +227,6 @@ sparsity_best_log_model = np.mean(best_log_model_coeff == 0) * 100
 
 # predict probabilities
 probability_log = best_log_model.predict_proba(test_data)
-# %%
 # what are the best features!
 top10 = np.argsort(np.abs(best_log_model_coeff ))[::-1][:10]
 best_features = [data_features_name[i] for i in top10]
@@ -246,9 +246,15 @@ test_score_best_log = best_log_model.decision_function(test_data)
 average_precision_best_log = average_precision_score(test_labels, test_score_best_log)
 print('Average precision-recall score: {0:0.2f} '.format(average_precision_best_log))
 
+sample_weight_test = (test_labels.shape[0]/(2*np.bincount(test_labels==1)))
+sample_weight_array_test = np.zeros(test_labels.shape[0])
+sample_weight_array_test[test_labels==0] = sample_weight_test[0]
+sample_weight_array_test[test_labels==1] = sample_weight_test[1]
+
 precision_best_log, recall_best_log, _ = precision_recall_curve(test_labels, test_score_best_log)
-fpr_best_log, tpr_best_log, _ = roc_curve(test_labels, test_score_best_log)
-roc_auc_best_log = auc(fpr_best_log, tpr_best_log)
+fpr_best_log, tpr_best_log, _ = roc_curve(test_labels, test_score_best_log,sample_weight=sample_weight_array_test)
+roc_auc_best_log = roc_auc_score(test_labels,test_score_best_log,sample_weight=sample_weight_array_test)
+
 print("AUC: {0:0.2f}".format(roc_auc_best_log))
 with sns.axes_style('darkgrid'):
     plt.figure(dpi=600)
@@ -260,9 +266,9 @@ with sns.axes_style('darkgrid'):
     plt.plot([0, 1], [0, 1], color='navy', lw=lw, linestyle='--')
     plt.ylim([0.0, 1.05])
     plt.xlim([0.0, 1.0])
-    plt.savefig('roc_logistic_v2')
-    plt.savefig('roc_logistic_v2.svg')
-
+    plt.savefig('roc_logistic_acc')
+    plt.savefig('roc_logistic_acc.svg')
+    #
 plt.figure(dpi=600)
 plt.xlabel('Recall')
 plt.ylabel('Precision')
@@ -271,8 +277,8 @@ plt.step(recall_best_log, precision_best_log, color='b', alpha=0.2,where='post')
 plt.fill_between(recall_best_log, precision_best_log, step='post', alpha=0.2,color='b')
 plt.ylim([0.0, 1.05])
 plt.xlim([0.0, 1.0])
-plt.savefig('precisionrecall_logistic_v2')
-plt.savefig('precisionrecall_logistic_v2.svg')
+plt.savefig('precisionrecall_logistic_acc')
+plt.savefig('precisionrecall_logistic_acc.svg')
 
 
 ###########################################################################
@@ -284,8 +290,8 @@ plt.xticks(())
 plt.yticks(())
 plt.colorbar(ticks=[-1, 0, 1], orientation='vertical')
 plt.title('Sparsity pattern and weights of features')
-plt.savefig('sparsity_regression_v2')
-plt.savefig('sparsity_regression_v2.svg')
+plt.savefig('sparsity_regression_acc')
+plt.savefig('sparsity_regression_acc.svg')
 
 ##############################################################################
 # permutation testing
@@ -310,5 +316,5 @@ plt.legend(loc='upper left')
 plt.xlabel('Score')
 plt.xlim((0,1))
 plt.title('Permutation testing of logistic regression classifier')
-plt.savefig('permutation_testing_logistic_v2')
-plt.savefig('permutation_testing_logistic_v2.svg')
+plt.savefig('permutation_testing_logistic_acc')
+plt.savefig('permutation_testing_logistic_acc.svg')

@@ -28,6 +28,7 @@ from sklearn.metrics import roc_curve, auc
 from sklearn.model_selection import GridSearchCV
 from sklearn.model_selection import cross_validate
 from sklearn.model_selection import ParameterGrid
+from sklearn.metrics import roc_auc_score
 
 
 from metaData import environment_info as env_info
@@ -206,27 +207,23 @@ sample_weight = (train_labels.shape[0]/(2*np.bincount(train_labels==1)))
 keys = [0,1]
 sample_weight_dict = dict(zip(keys,sample_weight.T))
 
-param_grid_svm = [{'kernel': ['rbf'], 'gamma': [1e-2,1e-3, 1e-4],
-                     'C': [1, 10, 100, 1000],'class_weight': ['balanced']},
-                    {'kernel': ['linear'], 'C': [1, 10, 100, 1000],'class_weight': ['balanced']},
-                    {'kernel': ['poly'], 'C':[1,10,100,1000], 'degree':[3,5,7],'gamma': [1e-2,1e-3, 1e-4],'class_weight': ['balanced']},
-                    {'kernel':['sigmoid'], 'C':[1,10,100,1000], 'degree':[3,5,7],'gamma': [1e-2,1e-3, 1e-4],'class_weight': ['balanced']}]
+param_grid_svm = [{'kernel': ['rbf'], 'gamma': [1e-3,1e-4],
+                     'C': [1, 10],'class_weight': ['balanced']},
+                    {'kernel': ['linear'], 'C': [1, 10],'class_weight': ['balanced']},
+                    {'kernel': ['poly'], 'C':[1,10], 'degree':[3,5],'gamma': [1e-3,1e-4],'class_weight': ['balanced']},
+                    {'kernel':['sigmoid'], 'C':[1,10], 'degree':[3,5],'gamma': [1e-3,1e-4],'class_weight': ['balanced']}]
 cv = StratifiedKFold(5)
 
 svm_search = GridSearchCV(SVC(),param_grid = param_grid_svm,cv=cv,scoring='accuracy')
 svm_search.fit(train_data,train_labels)
-
+test_pred
 best_params = svm_search.best_params_
 svm_search.best_score_
-
-svm_mod = svm.SVC(**params)
+#
+svm_mod = svm.SVC(**best_params)
 svm_mod.fit(train_data,train_labels)
-
-support = svm_mod.support_
-support_vectors = svm_mod.support_vectors_
-num_support = svm_mod.n_support_
-
-probability_svm = svm_mod.predict_proba(test_data)
+kernel = best_params['kernel']
+best_params
 svm_train_score = svm_mod.score(train_data,train_labels)
 svm_test_score = svm_mod.score(test_data,test_labels)
 print('test accuracy: {:.4f} for {} kernel'.format(svm_train_score,kernel))
@@ -240,8 +237,15 @@ average_precision_svm = average_precision_score(test_labels, test_score_svm)
 
 print('Average precision-recall score: {0:0.2f}'.format(average_precision_svm))
 precision_svm, recall_svm, thresh_svm = precision_recall_curve(test_labels, test_score_svm)
-fpr_svm, tpr_svm, _ = roc_curve(test_labels, test_score_svm)
-roc_auc_svm = auc(fpr_svm, tpr_svm)
+
+
+sample_weight_test = (test_labels.shape[0]/(2*np.bincount(test_labels==1)))
+sample_weight_array_test = np.zeros(test_labels.shape[0])
+sample_weight_array_test[test_labels==0] = sample_weight_test[0]
+sample_weight_array_test[test_labels==1] = sample_weight_test[1]
+
+fpr_svm, tpr_svm, _ = roc_curve(test_labels, test_score_svm,sample_weight=sample_weight_array_test)
+roc_auc_svm = roc_auc_score(test_labels,test_score_svm,sample_weight = sample_weight_array_test)
 
 print("AUC: {0:0.2f}".format(roc_auc_svm))
 
@@ -269,14 +273,10 @@ plt.xlim([0.0, 1.0])
 plt.savefig('precisionrecall_svm')
 plt.savefig('precisionrecall_svm.svg')
 
-###########################################################################
-
-# %%
 ##############################################################################
 # permutation testing
 score_best_svm, permutation_scores_best_svm, pvalue_best_svm = permutation_test_score(svm_mod,train_data, train_labels, scoring="accuracy", cv=cv, n_permutations=100, n_jobs=1)
 print("permutation score: {0:0.2f}, p value {1:0.2f} \n".format(score_best_svm,pvalue_best_svm))
-# %%
 # #############################################################################
 # View histogram of permutation scores
 with sns.axes_style('dark'):
