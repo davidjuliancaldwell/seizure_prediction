@@ -196,139 +196,10 @@ test_labels = seizure_elec_all[total_elecs-n_leave:]
 # separate the holdout data entirely, will do cross validation on the rest
 #test_data = (test_data - test_data_average)/test_data_std
 ###########################################################################
-# %%
-# logistic regression
-sns.axes_style("white")
-
-sparse_vec = [100,50,10,5,1,0.5,0.1,0.05,0.01,0.005]
-penalty_vec = ['l1','l2']
-score_vec = np.zeros((len(sparse_vec),2))
-
-param_grid = {'C':[100,50,10,5,1,0.5,0.1,0.05,0.01,0.005], 'penalty': ['l1','l2'] ,'class_weight': ['balanced']}
-
-#params = ParameterGrid(param_grid)
-logreg = LogisticRegression()
-cv = StratifiedKFold(5)
-logreg_search = GridSearchCV(logreg,param_grid = param_grid,cv=cv,scoring='accuracy')
-logreg_search.fit(train_data,train_labels)
-
-best_params = logreg_search.best_params_
-logreg_search.best_score_
-
-############################################################################
-# now we have picked what's best from logistic regression, try it on all train
-
-best_log_model = LogisticRegression(**best_params)
-best_log_model.fit(train_data,train_labels)
-best_log_model_coeff = best_log_model.coef_.ravel()
-sparsity_best_log_model = np.mean(best_log_model_coeff == 0) * 100
-
-# predict probabilities
-probability_log = best_log_model.predict_proba(test_data)
-# %%
-# what are the best features!
-top10 = np.argsort(np.abs(best_log_model_coeff ))[::-1][:10]
-best_features = [data_features_name[i] for i in top10]
-print('Ranked Features')
-for i,feat in enumerate(best_features):
-    print('# {} , {} \n'.format(i,feat))
-
-print("C=%.2f" % best_params['C'])
-print("Sparsity: %.2f%%" % sparsity_best_log_model)
-print("test accuracy: %.4f" % best_log_model.score(test_data,test_labels))
-
-train_pred = best_log_model.predict(train_data)
-test_pred = best_log_model.predict(test_data)
-print("test precision: %.4f" % metrics.precision_score(test_labels,test_pred))
-
-test_score_best_log = best_log_model.decision_function(test_data)
-average_precision_best_log = average_precision_score(test_labels, test_score_best_log)
-print('Average precision-recall score: {0:0.2f} '.format(average_precision_best_log))
-
-precision_best_log, recall_best_log, _ = precision_recall_curve(test_labels, test_score_best_log)
-fpr_best_log, tpr_best_log, _ = roc_curve(test_labels, test_score_best_log)
-roc_auc_best_log = auc(fpr_best_log, tpr_best_log)
-print("AUC: {0:0.2f}".format(roc_auc_best_log))
-with sns.axes_style('darkgrid'):
-    plt.figure(dpi=600)
-    plt.xlabel('False Positive Rate')
-    plt.ylabel('True Positive Rate')
-    plt.title('Receiver Operating Curve for logistic regression classifier')
-    lw = 2
-    plt.plot(fpr_best_log, tpr_best_log, color='darkorange',lw=lw, label='ROC curve (area = %0.2f)' % roc_auc_best_log)
-    plt.plot([0, 1], [0, 1], color='navy', lw=lw, linestyle='--')
-    plt.ylim([0.0, 1.05])
-    plt.xlim([0.0, 1.0])
-    plt.savefig('roc_logistic_v2')
-    plt.savefig('roc_logistic_v2.svg')
-
-plt.figure(dpi=600)
-plt.xlabel('Recall')
-plt.ylabel('Precision')
-plt.title('Precision vs. recall graph for logistic regression classifier')
-plt.step(recall_best_log, precision_best_log, color='b', alpha=0.2,where='post')
-plt.fill_between(recall_best_log, precision_best_log, step='post', alpha=0.2,color='b')
-plt.ylim([0.0, 1.05])
-plt.xlim([0.0, 1.0])
-plt.savefig('precisionrecall_logistic_v2')
-plt.savefig('precisionrecall_logistic_v2.svg')
-
-
-###########################################################################
-plt.figure(dpi=600)
-nice_size = np.append(best_log_model_coeff,np.nan)
-sns.set_style('white')
-plt.imshow(np.abs(nice_size.reshape(10, int(nice_size.shape[0]/10))), interpolation='nearest',cmap='binary', vmax=1, vmin=0)
-plt.xticks(())
-plt.yticks(())
-plt.colorbar(ticks=[-1, 0, 1], orientation='vertical')
-plt.title('Sparsity pattern and weights of features')
-plt.savefig('sparsity_regression_v2')
-plt.savefig('sparsity_regression_v2.svg')
-
-##############################################################################
-# permutation testing
-score_best_log, permutation_scores_best_log, pvalue_best_log = permutation_test_score(best_log_model,train_data, train_labels, scoring="accuracy", cv=cv, n_permutations=100, n_jobs=1)
-print("permutation score: {0:0.2f}, p value {1:0.2f} \n".format(score_best_log,pvalue_best_log))
-
-# #############################################################################
-# View histogram of permutation scores
-sns.set_style('dark')
-plt.figure(dpi=600)
-n_classes=2
-#plt.hist(permutation_scores_best_log, 20, label='Permutation scores',
-#         edgecolor='black')
-sns.distplot(permutation_scores_best_log, 20, label='Permutation scores',kde=False)
-ylim = plt.ylim()
-plt.vlines(score_best_log, ylim[0], ylim[1], linestyle='--', color='g', linewidth=3, label='Classification Score'' \n (pvalue {0:0.2f})'.format(pvalue_best_log))
-plt.vlines(1.0 / n_classes, ylim[0], ylim[1], linestyle='--',color='k', linewidth=3, label='Luck')
-plt.ylim(ylim)
-plt.ylabel('Count')
-#plt.legend(bbox_to_anchor=(1.05, 1), loc=2, borderaxespad=0.)
-plt.legend(loc='upper left')
-plt.xlabel('Score')
-plt.xlim((0,1))
-plt.title('Permutation testing of logistic regression classifier')
-plt.savefig('permutation_testing_logistic_v2')
-plt.savefig('permutation_testing_logistic_v2.svg')
 
 ###############################################################################
 # kernel classification
 # %%
-
-# decision theory
-# maximize probability of detection under constraint
-# classifier with decision rule - move predictor linearly
-# move that threshold until false alarm rate is ...
-# tune weight of loss function until you get desired effect
-# binary classification, hinge function, put big weight on that one
-# search over differnet weight values until you get the false alarm rate that you want
-# optimizing precision recall - pearson classifacation
-#
-# for neural nets with time series
-# sliding window
-# do a cnn on finite window
-
 
 sample_weight = (train_labels.shape[0]/(2*np.bincount(train_labels==1)))
 #sample_weight = np.array([0.2,9])
@@ -340,43 +211,15 @@ param_grid_svm = [{'kernel': ['rbf'], 'gamma': [1e-2,1e-3, 1e-4],
                     {'kernel': ['linear'], 'C': [1, 10, 100, 1000],'class_weight': ['balanced']},
                     {'kernel': ['poly'], 'C':[1,10,100,1000], 'degree':[3,5,7],'gamma': [1e-2,1e-3, 1e-4],'class_weight': ['balanced']},
                     {'kernel':['sigmoid'], 'C':[1,10,100,1000], 'degree':[3,5,7],'gamma': [1e-2,1e-3, 1e-4],'class_weight': ['balanced']}]
+cv = StratifiedKFold(5)
 
 svm_search = GridSearchCV(SVC(),param_grid = param_grid_svm,cv=cv,scoring='accuracy')
 svm_search.fit(train_data,train_labels)
 
-best_params = logreg_search.best_params_
-logreg_search.best_score_
+best_params = svm_search.best_params_
+svm_search.best_score_
 
-############################################################################
-# now we have picked what's best from svm, try it on all train
-
-best_log_model = LogisticRegression(**best_params)
-best_log_model.fit(train_data,train_labels)
-
-for ind,kernel in enumerate(kernel_vector):
-
-
-    svm_mod = svm.SVC(kernel=kernel,class_weight=sample_weight_dict)
-    cv = StratifiedKFold(5)
-    scores_svm = cross_validate(svm_mod, train_data, train_labels, cv = cv, return_train_score=True,scoring=('accuracy','precision','average_precision','f1'))
-
-    avgDict_svm = {}
-    for k,v in scores_svm.items():
-        # v is the list of grades for student k
-        avgDict_svm[k] = sum(v)/ float(len(v))
-
-    score_vec_svm[ind] = avgDict_svm['test_accuracy']
-
-# %%
-best_svm_ind = np.unravel_index(score_vec_svm.argmax(), score_vec_svm.shape)
-best_kernel = kernel_vector[best_svm_ind[0]]
-
-
-sample_weight = (train_labels.shape[0]/(2*np.bincount(train_labels==1)))
-#sample_weight = np.array([0.2,9])
-keys = [0,1]
-sample_weight_dict = dict(zip(keys,sample_weight.T))
-svm_mod = svm.SVC(kernel=best_kernel,class_weight=sample_weight_dict,probability=True)
+svm_mod = svm.SVC(**params)
 svm_mod.fit(train_data,train_labels)
 
 support = svm_mod.support_
@@ -454,107 +297,3 @@ with sns.axes_style('dark'):
     plt.title('Permutation testing of SVM classifier')
     plt.savefig('permutation_testing_svm')
     plt.savefig('permutation_testing_svm.svg')
-
-# gradient boosting
-# %%
-# Fit classifier with out-of-bag estimates
-
-
-sample_weight = (train_labels.shape[0]/(2*np.bincount(train_labels==1)))
-sample_weight_array = np.zeros(train_labels.shape[0])
-sample_weight_array[train_labels==0] = sample_weight[0]
-sample_weight_array[train_labels==1] = sample_weight[1]
-clf.fit(train_data,train_labels,sample_weight=sample_weight_array)
-
-
-param_grid = {'learning_rate': [0.1, 0.05, 0.02, 0.01],
-              'max_depth': [4, 6],
-              'min_samples_leaf': [3, 5, 9, 17],
-              # 'max_features': [1.0, 0.3, 0.1] ## not possible in our example (only 1 fx)
-              }
-
-est = ensemble.GradientBoostingClassifier(n_estimators=3000)
-# this may take some minutes
-gs_cv = GridSearchCV(est, param_grid, n_jobs=4,scoring='precision').fit(train_data, train_labels,sample_weight=sample_weight_array)
-# best hyperparameter setting
-gs_cv.best_params_
-
-best_params = gs_cv.best_params_
-
-clf = ensemble.GradientBoostingClassifier(**best_params)
-clf.fit(train_data,train_labels,sample_weight=sample_weight_array)
-
-acc_train = clf.score(train_data,train_labels)
-acc_test = clf.score(test_data,test_labels)
-
-print("Train accuracy for gradient boosting: {:.4f}".format(acc_train))
-print("Test accuracy for gradient boosting: {:.4f}".format(acc_test))
-
-train_pred = clf.predict(train_data)
-test_pred = clf.predict(test_data)
-
-print("Train precision {:.4f} for gradient boosting".format(metrics.precision_score(train_labels,train_pred)))
-print("Test precision {:.4f} for gradient boosting".format(metrics.precision_score(test_labels,test_pred)))
-
-test_score_gb = clf.decision_function(test_data)
-average_precision_gb = average_precision_score(test_labels, test_score_gb)
-
-print('Average precision-recall score: {0:0.2f}'.format(average_precision_gb))
-precision_gb, recall_gb, thresh_gb = precision_recall_curve(test_labels, test_score_gb)
-fpr_gb, tpr_gb, _ = roc_curve(test_labels, test_score_gb)
-roc_auc_gb = auc(fpr_gb, tpr_gb)
-
-print("AUC: {0:0.2f}".format(roc_auc_gb))
-
-with sns.axes_style('darkgrid'):
-    plt.figure(dpi=600)
-    plt.xlabel('False Positive Rate')
-    plt.ylabel('True Positive Rate')
-    plt.title('Receiver Operating Curve for Gradient Boosting classifier')
-    lw = 2
-    plt.plot(fpr_svm, tpr_svm, color='darkorange',lw=lw, label='ROC curve (area = %0.2f)' % roc_auc_gb)
-    plt.plot([0, 1], [0, 1], color='navy', lw=lw, linestyle='--')
-    plt.ylim([0.0, 1.05])
-    plt.xlim([0.0, 1.0])
-    plt.savefig('roc_gb')
-    plt.savefig('roc_gb.svg')
-
-# plot feature importance
-# %%
-# Plot feature importance
-plt.figure(dpi=600)
-feature_importance = clf.feature_importances_
-# make importances relative to max importance
-feature_importance = 100.0 * (feature_importance / feature_importance.max())
-sorted_idx = np.argsort(feature_importance)
-pos = np.arange(sorted_idx.shape[0]) + .5
-plt.subplot(1, 2, 2)
-plt.barh(pos, feature_importance[sorted_idx], align='center')
-plt.yticks(pos, np.array(data_features_name)[sorted_idx])
-plt.xlabel('Relative Importance')
-plt.title('Variable Importance')
-plt.savefig('gb_feat_import')
-plt.show()
-# %%
-
-cv = StratifiedKFold(5)
-score_gb, permutation_scores_gb, pvalue_gb = permutation_test_score(clf, train_data, train_labels, scoring="accuracy", cv=cv, n_permutations=100, n_jobs=1)
-# %%
-with sns.axes_style('dark'):
-    plt.figure(dpi=600)
-    n_classes=2
-    #plt.hist(permutation_scores_best_log, 20, label='Permutation scores',
-    #         edgecolor='black')
-    sns.distplot(permutation_scores_best_gb, 20, label='Permutation scores',kde=False)
-    ylim = plt.ylim()
-    plt.vlines(score_best_svm, ylim[0], ylim[1], linestyle='--', color='g', linewidth=3, label='Classification Score'' \n (pvalue {0:0.2f})'.format(pvalue_best_gb))
-    plt.vlines(1.0 / n_classes, ylim[0], ylim[1], linestyle='--',color='k', linewidth=3, label='Luck')
-    plt.ylim(ylim)
-    plt.ylabel('Count')
-    #plt.legend(bbox_to_anchor=(1.05, 1), loc=2, borderaxespad=0.)
-    plt.legend(loc='upper left')
-    plt.xlabel('Score')
-    plt.xlim((0,1))
-    plt.title('Permutation testing of SVM classifier')
-    plt.savefig('permutation_testing_gb')
-    plt.savefig('permutation_testing_gb.svg')
