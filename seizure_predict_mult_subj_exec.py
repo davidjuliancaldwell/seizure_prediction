@@ -1,8 +1,8 @@
 # %%
 #############################################################################
 # setup working environement
-#% cd C:\Users\djcald.CSENETID\SharedCode\seizurePrediction
-% cd C:\Users\David\Research\seizure_prediction
+% cd C:\Users\djcald.CSENETID\SharedCode\seizurePrediction
+#% cd C:\Users\David\Research\seizure_prediction
 
 % matplotlib inline
 import numpy as np
@@ -17,12 +17,16 @@ from sklearn.linear_model import LogisticRegression
 from sklearn import svm
 from sklearn import metrics
 from sklearn import ensemble
+from sklearn import utils
 from sklearn.model_selection import KFold
-from sklearn.model_selection import train_test_split
-from sklearn.grid_search import GridSearchCV
+from sklearn.model_selection import StratifiedKFold
+from sklearn.model_selection import permutation_test_score
 from sklearn.metrics import average_precision_score
 from sklearn.metrics import precision_recall_curve
 from sklearn.metrics import roc_curve, auc
+from sklearn.model_selection import GridSearchCV
+from sklearn.model_selection import cross_validate
+
 
 
 from metaData import environment_info as env_info
@@ -42,7 +46,8 @@ def conv_montage(file):
     return montage_array
 
 def get_num_chans(file):
-    num_chans = int(np.sum(list(file['Montage']['Montage'])))
+    #num_chans = int(np.sum(list(file['Montage']['Montage'])))
+    num_chans = int(f['data']['solo'].shape[0])
     return num_chans
 
 def convert_power_data(f,num_chans):
@@ -70,8 +75,9 @@ def convert_connectivity_data(file,num_chans):
 def one_hot_encode(electrodes,num_chans):
 
     one_hot_vec = np.zeros((num_chans,1))
-    one_hot_vec[electrodes] = 1
-    one_hot_vec[one_hot_vec==0] = 0
+    if len(electrodes)>0:
+        one_hot_vec[electrodes] = 1
+        one_hot_vec[one_hot_vec==0] = 0
 
     return one_hot_vec
 #############################################################################
@@ -96,8 +102,8 @@ for ind_int in np.arange(0,num_patients):
     num_chans = get_num_chans(f)
 
     # account for 3 not complete montages
-    if patient_name in ['fca96e','78283a', '294e1c']:
-        num_chans = 64
+    #if patient_name in ['fca96e','78283a', '294e1c']:
+    #    num_chans = 64
 
     num_chans_array[ind_int] = num_chans
     num_chans_array = num_chans_array.astype(int)
@@ -140,6 +146,7 @@ for ind_int in np.arange(0,num_patients):
     #c_plv_t_t = c_plv_t_t.reshape(c_plv_t_t.shape[0],c_plv_t_t.shape[1],-1)
 
     data_features = np.concatenate((p_t_t,c_psi_t_t,c_corr_t_t,c_plv_t_t),axis=2)
+    #data_features = p_t_t
     random_seq_data = np.reshape(np.repeat(random_seq_arr,data_features.shape[2],axis=1),np.array(data_features.shape))
     shuff_data = np.zeros((data_features.shape))
 
@@ -157,16 +164,16 @@ for ind_int in np.arange(0,num_patients):
 
 # train and test split
 
+leave = 7
 total_elecs = seizure_elec_all.shape[0]
-n_leave = num_chans_array[leave]
+n_leave = 3*num_chans_array[leave]
 index_train = np.array([ np.arange(0,np.sum(num_chans_array[0:leave])), np.arange(np.sum(num_chans_array[0:leave])+n_leave,np.sum(num_chans_array))])
 train_data = shuff_data_all[0:-n_leave,:]
-test_data = shuff_data_all[total_elecs-n_leave:,:]
+holdout_test_data = shuff_data_all[total_elecs-n_leave:,:]
 train_labels = seizure_elec_all[0:-n_leave]
-test_labels = seizure_elec_all[total_elecs-n_leave:]
+holdout_test_labels = seizure_elec_all[total_elecs-n_leave:]
 
 #np.random.shuffle(test_labels)
-
 
 # demean the data
 train_data_average = np.repeat(np.array([(np.mean(train_data,axis=0))]).T,train_data.shape[0],axis=1).T
@@ -177,7 +184,9 @@ test_data_std = np.repeat(np.array([(np.std(train_data,axis=0))]).T,test_data.sh
 
 # mean subtract and normalize
 train_data = (train_data - train_data_average)/train_data_std
-test_data = (test_data - test_data_average)/test_data_std
+
+# separate the holdout data entirely, will do cross validation on the rest
+holdout_test_data = (test_data - test_data_average)/test_data_std
 ###########################################################################
 # %%
 # logistic regression
@@ -200,10 +209,18 @@ with sns.axes_style("white"):
     ax3.get_yaxis().set_visible(False)
     sns.despine(left=True,bottom=True)
 
+    fig4,ax4 = plt.subplots(dpi=600)
+    ax4.grid(False)
+    ax4.get_xaxis().set_visible(False)
+    ax4.get_yaxis().set_visible(False)
+    sns.despine(left=True,bottom=True)
+
 sparse_vec = [100,10,1,0.1,0.01]
+
 for i, norm_val in enumerate(sparse_vec):
 
     LR_mod_l1 = LogisticRegression(C=norm_val,penalty='l1',tol=0.01,class_weight="balanced")
+
     LR_mod_l1.fit(train_data,train_labels)
     LR_mod_l1_coeff = LR_mod_l1.coef_.ravel()
     sparsity_LR_l1 = np.mean(LR_mod_l1_coeff == 0) * 100
@@ -214,17 +231,25 @@ for i, norm_val in enumerate(sparse_vec):
 
     train_pred = LR_mod_l1.predict(train_data)
     test_pred = LR_mod_l1.predict(test_data)
-    print("train precision with L1 penalty: %.4f" % metrics.precision_score(train_pred,train_labels))
-    print("test precision with L1 penalty: %.4f" % metrics.precision_score(test_pred,test_labels))
+    print("train precision with L1 penalty: %.4f" % metrics.precision_score(train_labels,train_pred))
+    print("test precision with L1 penalty: %.4f" % metrics.precision_score(test_labels,test_pred))
 
     test_score_l1 = LR_mod_l1.decision_function(test_data)
     average_precision_l1 = average_precision_score(test_labels, test_score_l1)
 
-    print('Average precision-recall score: {0:0.2f}'.format(average_precision_l1))
+    print('Average precision-recall score: {0:0.2f} '.format(average_precision_l1))
     precision_l1, recall_l1, _ = precision_recall_curve(test_labels, test_score_l1)
 
     fpr_l1, tpr_l1, _ = roc_curve(test_labels, test_score_l1)
     roc_auc_l1 = auc(fpr_l1, tpr_l1)
+    print("AUC: {0:0.2f}".format(roc_auc_l1))
+
+    # permutation testing
+    cv = StratifiedKFold(3)
+    score_l1, permutation_scores_l1, pvalue_l1 = permutation_test_score(LR_mod_l1, train_data, train_labels, scoring="accuracy", cv=cv, n_permutations=100, n_jobs=1)
+    #print("permutation score: {0:0.2f}, p value {0:0.2f} \n".format(score_l1,pvalue_l1))
+    print("permutation score: {:0.2f}, p value {:0.2f} \n".format(score_l1,pvalue_l1))
+
 ###########################################################################
     LR_mod_l2 = LogisticRegression(C=norm_val,penalty='l2',tol=0.01,class_weight="balanced")
     LR_mod_l2.fit(train_data,train_labels)
@@ -232,12 +257,12 @@ for i, norm_val in enumerate(sparse_vec):
     sparsity_LR_l2 = np.mean(LR_mod_l2_coeff == 0) * 100
     print("Sparsity with L2 penalty: %.2f%%" % sparsity_LR_l2)
     print("train accuracy with L2 penalty: %.4f" % LR_mod_l2.score(train_data,train_labels))
-    print("test accuracy with L2 penalty: %.4f" % LR_mod_l1.score(test_data,test_labels))
+    print("test accuracy with L2 penalty: %.4f" % LR_mod_l2.score(test_data,test_labels))
 
     train_pred = LR_mod_l2.predict(train_data)
     test_pred = LR_mod_l2.predict(test_data)
-    print("train precision with L2 penalty: %.4f" % metrics.precision_score(train_pred,train_labels))
-    print("test precision with L2 penalty: %.4f \n" % metrics.precision_score(test_pred,test_labels))
+    print("train precision with L2 penalty: %.4f" % metrics.precision_score(train_labels,train_pred))
+    print("test precision with L2 penalty: %.4f" % metrics.precision_score(test_labels,test_pred))
 
     test_score_l2 = LR_mod_l2.decision_function(test_data)
     average_precision_l2 = average_precision_score(test_labels, test_score_l2)
@@ -247,6 +272,7 @@ for i, norm_val in enumerate(sparse_vec):
 
     fpr_l2, tpr_l2, _ = roc_curve(test_labels, test_score_l2)
     roc_auc_l2 = auc(fpr_l2, tpr_l2)
+    print("AUC: {0:0.2f}".format(roc_auc_l2))
 
     l1_plot = fig2.add_subplot(5, 2, 2 * i + 1)
     l2_plot = fig2.add_subplot(5, 2, 2 * (i + 1))
@@ -257,8 +283,6 @@ for i, norm_val in enumerate(sparse_vec):
         l2_plot.set_xlabel('False Positive Rate')
         l2_plot.set_ylabel('True Positive Rate')
 
-
-
     lw = 2
     l1_plot.plot(fpr_l1, tpr_l1, color='darkorange',
          lw=lw, label='ROC curve (area = %0.2f)' % roc_auc_l1)
@@ -266,7 +290,6 @@ for i, norm_val in enumerate(sparse_vec):
     l1_plot.set_ylim([0.0, 1.05])
     l1_plot.set_xlim([0.0, 1.0])
     #l1_plot.title('2-class Precision-Recall curve: AP={0:0.2f}'.format(average_precision_l1))
-
 
     lw = 2
     l2_plot.plot(fpr_l2, tpr_l2, color='darkorange',
@@ -302,7 +325,7 @@ for i, norm_val in enumerate(sparse_vec):
     l2_plot.set_yticks(())
     #fig2.text(-3, 2, "C = {:.2f}".format(norm_val))
 
-###########################################################################
+    ###########################################################################
     l1_plot = fig1.add_subplot(5, 2, 2 * i + 1)
     l2_plot = fig1.add_subplot(5, 2, 2 * (i + 1))
     if i == 0:
@@ -321,10 +344,54 @@ for i, norm_val in enumerate(sparse_vec):
     l2_plot.set_xticks(())
     l2_plot.set_yticks(())
 
+    ##############################################################################
+    # permutation testing
+    score_l2, permutation_scores_l2, pvalue_l2 = permutation_test_score(LR_mod_l2, train_data, train_labels, scoring="accuracy", cv=cv, n_permutations=100, n_jobs=1)
+    print("permutation score: {0:0.2f}, p value {1:0.2f} \n".format(score_l2,pvalue_l2))
+
+    # #############################################################################
+    # View histogram of permutation scores
+    l1_plot = fig4.add_subplot(5, 2, 2 * i + 1)
+    l2_plot = fig4.add_subplot(5, 2, 2 * (i + 1))
+    if i == 0:
+        l1_plot.set_title("L1 penalty")
+        l2_plot.set_title("L2 penalty")
+    n_classes=2
+    l1_plot.hist(permutation_scores_l1, 20, label='Permutation scores',
+             edgecolor='black')
+    ylim = l1_plot.set_ylim()
+    l1_plot.vlines(score_l1, ylim[0], ylim[1], linestyle='--', color='g', linewidth=3, label='Classification Score'' (pvalue {0:0.2f})'.format(pvalue_l1))
+    l1_plot.vlines(1.0 / n_classes, ylim[0], ylim[1], linestyle='--',color='k', linewidth=3, label='Luck')
+    #plt.plot(2 * [score], ylim, '--g', linewidth=3,
+    #         label='Classification Score'
+    #         ' (pvalue %s)' % pvalue)
+    #plt.plot(2 * [1. / n_classes], ylim, '--k', linewidth=3, label='Luck')
+
+    l1_plot.set_ylim(ylim)
+    l1_plot.legend()
+    l1_plot.set_xlabel('Score')
+
+    l2_plot.hist(permutation_scores_l2, 20, label='Permutation scores',
+             edgecolor='black')
+    ylim = l2_plot.set_ylim()
+    l2_plot.vlines(score_l2, ylim[0], ylim[1], linestyle='--',color='g', linewidth=3, label='Classification Score''(pvalue {0:0.2f})'.format(pvalue_l1))
+    l2_plot.vlines(1.0 / n_classes, ylim[0], ylim[1], linestyle='--',
+             color='k', linewidth=3, label='Luck')
+    #plt.plot(2 * [score], ylim, '--g', linewidth=3,
+    #         label='Classification Score'
+    #         ' (pvalue %s)' % pvalue)
+    #plt.plot(2 * [1. / n_classes], ylim, '--k', linewidth=3, label='Luck')
+
+    l2_plot.set_ylim(ylim)
+    l2_plot.legend()
+    l2_plot.set_xlabel('Score')
+
 #cbar = fig1.colorbar(cax, ticks=[-1, 0, 1], orientation='vertical')
 
 plt.gcf
 #plt.savefig('milestone_different_c_comb.png')
+
+
 ###############################################################################
 # kernel classification
 # %%
@@ -343,10 +410,10 @@ plt.gcf
 # do a cnn on finite window
 
 with sns.axes_style("white"):
-    fig4,ax4 = plt.subplots(dpi=600)
-    ax4.grid(False)
-    ax4.get_xaxis().set_visible(False)
-    ax4.get_yaxis().set_visible(False)
+    fig6,ax6 = plt.subplots(dpi=600)
+    ax6.grid(False)
+    ax6.get_xaxis().set_visible(False)
+    ax6.get_yaxis().set_visible(False)
     sns.despine(left=True,bottom=True)
 
     fig5,ax5 = plt.subplots(dpi=600)
@@ -355,9 +422,19 @@ with sns.axes_style("white"):
     ax5.get_yaxis().set_visible(False)
     sns.despine(left=True,bottom=True)
 
-for ind,kernel in enumerate(('linear', 'poly', 'rbf')):
+    fig7,ax7 = plt.subplots(dpi=600)
+    ax7.grid(False)
+    ax7.get_xaxis().set_visible(False)
+    ax7.get_yaxis().set_visible(False)
+    sns.despine(left=True,bottom=True)
 
-    svm_mod = svm.SVC(kernel=kernel,class_weight='balanced')
+
+for ind,kernel in enumerate(('linear','poly', 'rbf')):
+    sample_weight = (train_labels.shape[0]/(2*np.bincount(train_labels==1)))
+    #sample_weight = np.array([0.2,9])
+    keys = [0,1]
+    sample_weight_dict = dict(zip(keys,sample_weight.T))
+    svm_mod = svm.SVC(kernel=kernel,class_weight=sample_weight_dict)
     svm_mod.fit(train_data,train_labels)
     svm_train_score = svm_mod.score(train_data,train_labels)
     svm_test_score = svm_mod.score(test_data,test_labels)
@@ -367,17 +444,21 @@ for ind,kernel in enumerate(('linear', 'poly', 'rbf')):
     train_pred = svm_mod.predict(train_data)
     test_pred = svm_mod.predict(test_data)
     test_pred
-    print("train precision {:.4f} for {} kernel".format(metrics.precision_score(train_pred,train_labels),kernel))
-    print("test precision {:.4f} for {} kernel".format(metrics.precision_score(test_pred,test_labels),kernel))
+    print("train precision {:.4f} for {} kernel".format(metrics.precision_score(train_labels,train_pred),kernel))
+    print("test precision {:.4f} for {} kernel".format(metrics.precision_score(test_labels,test_pred),kernel))
+    test_labels
+    test_pred
 
     test_score_svm = svm_mod.decision_function(test_data)
     average_precision_svm = average_precision_score(test_labels, test_score_svm)
 
-    print('Average precision-recall score: {0:0.2f} \n'.format(average_precision_svm))
+    print('Average precision-recall score: {0:0.2f}'.format(average_precision_svm))
     precision_svm, recall_svm, thresh_svm = precision_recall_curve(test_labels, test_score_svm)
-    svm_plot = fig4.add_subplot(3, 1, ind+1)
+    svm_plot = fig5.add_subplot(3, 1, ind+1)
     fpr, tpr, _ = roc_curve(test_labels, test_score_svm)
-    roc_auc = auc(fpr, tpr)
+    roc_auc_svm = auc(fpr, tpr)
+
+    print("AUC: {0:0.2f}".format(roc_auc_svm))
 
     lw = 2
     svm_plot.plot(fpr, tpr, color='darkorange',
@@ -391,7 +472,7 @@ for ind,kernel in enumerate(('linear', 'poly', 'rbf')):
     svm_plot.set_xticks(())
     svm_plot.set_yticks(())
 
-    svm_plot = fig5.add_subplot(3, 1, ind+1)
+    svm_plot = fig6.add_subplot(3, 1, ind+1)
 
     lw = 2
     svm_plot.step(recall_svm, precision_svm, color='b', alpha=0.2,where='post')
@@ -401,6 +482,29 @@ for ind,kernel in enumerate(('linear', 'poly', 'rbf')):
     svm_plot.set_xticks(())
     svm_plot.set_yticks(())
 
+    cv = StratifiedKFold(3)
+    score_svm, permutation_scores_svm, pvalue_svm = permutation_test_score(svm_mod, train_data, train_labels, scoring="accuracy", cv=cv, n_permutations=100, n_jobs=1)
+    print("permutation score: {0:0.2f}, p value {1:0.2f} \n".format(score_svm,pvalue_svm))
+
+    # #############################################################################
+    # View histogram of permutation scores
+    svm_plot = fig7.add_subplot(3, 1, ind+1)
+
+    n_classes=2
+    svm_plot.hist(permutation_scores_svm, 20, label='Permutation scores',
+             edgecolor='black')
+    ylim = svm_plot.set_ylim()
+    svm_plot.vlines(score_svm, ylim[0], ylim[1], linestyle='--', color='g', linewidth=3, label='Classification Score'' (pvalue {0:0.2f})'.format(pvalue_svm))
+    svm_plot.vlines(1.0 / n_classes, ylim[0], ylim[1], linestyle='--',color='k', linewidth=3, label='Luck')
+    #plt.plot(2 * [score], ylim, '--g', linewidth=3,
+    #         label='Classification Score'
+    #         ' (pvalue %s)' % pvalue)
+    #plt.plot(2 * [1. / n_classes], ylim, '--k', linewidth=3, label='Luck')
+
+    svm_plot.set_ylim(ylim)
+    svm_plot.legend()
+    svm_plot.set_xlabel('Score')
+
 # gradient boosting
 # %%
 # Fit classifier with out-of-bag estimates
@@ -408,7 +512,13 @@ for ind,kernel in enumerate(('linear', 'poly', 'rbf')):
 params = {'n_estimators': 1200, 'max_depth': 4, 'subsample': 0.5,
           'learning_rate': 0.01, 'min_samples_leaf': 1,'min_samples_split':4, 'random_state': 3}
 clf = ensemble.GradientBoostingClassifier(**params)
-clf.fit(train_data,train_labels)
+
+sample_weight = (train_labels.shape[0]/(2*np.bincount(train_labels==1)))
+#ample_weight = np.array([1,3])
+sample_weight_array = np.zeros(train_labels.shape[0])
+sample_weight_array[train_labels==0] = sample_weight[0]
+sample_weight_array[train_labels==1] = sample_weight[1]
+clf.fit(train_data,train_labels,sample_weight=sample_weight_array)
 
 acc_train = clf.score(train_data,train_labels)
 acc_test = clf.score(test_data,test_labels)
@@ -419,8 +529,8 @@ print("Test accuracy for gradient boosting: {:.4f}".format(acc_test))
 train_pred = clf.predict(train_data)
 test_pred = clf.predict(test_data)
 
-print("Train precision {:.4f} for gradient boosting".format(metrics.precision_score(train_pred,train_labels)))
-print("Test precision {:.4f} for gradient boosting".format(metrics.precision_score(test_pred,test_labels)))
+print("Train precision {:.4f} for gradient boosting".format(metrics.precision_score(train_labels,train_pred)))
+print("Test precision {:.4f} for gradient boosting".format(metrics.precision_score(test_labels,test_pred)))
 
 # plot feature importance
 
@@ -433,13 +543,12 @@ sorted_idx = np.argsort(feature_importance)
 pos = np.arange(sorted_idx.shape[0]) + .5
 plt.subplot(1, 2, 2)
 plt.barh(pos, feature_importance[sorted_idx], align='center')
-plt.yticks(pos, np.array(p_n)[sorted_idx])
+#plt.yticks(pos, np.array(p_n)[sorted_idx])
 plt.xlabel('Relative Importance')
 plt.title('Variable Importance')
 plt.show()
 #plt.savefig('gradientboost_feature_importance')
 
-# %%
 # gradient boosting optimization
 
 param_grid = {'learning_rate': [0.1, 0.05, 0.02, 0.01],
@@ -450,7 +559,60 @@ param_grid = {'learning_rate': [0.1, 0.05, 0.02, 0.01],
 
 est = ensemble.GradientBoostingClassifier(n_estimators=3000)
 # this may take some minutes
-gs_cv = GridSearchCV(est, param_grid, n_jobs=4,scoring='precision').fit(train_data, train_labels)
-
+gs_cv = GridSearchCV(est, param_grid, n_jobs=4,scoring='accuracy').fit(train_data, train_labels,sample_weight=sample_weight_array)
 # best hyperparameter setting
 gs_cv.best_params_
+
+best_params = gs_cv.best_params_
+
+clf = ensemble.GradientBoostingClassifier(**best_params)
+clf.fit(train_data,train_labels,sample_weight=sample_weight_array)
+
+acc_train = clf.score(train_data,train_labels)
+acc_test = clf.score(test_data,test_labels)
+
+print("Train accuracy for gradient boosting: {:.4f}".format(acc_train))
+print("Test accuracy for gradient boosting: {:.4f}".format(acc_test))
+
+train_pred = clf.predict(train_data)
+test_pred = clf.predict(test_data)
+
+print("Train precision {:.4f} for gradient boosting".format(metrics.precision_score(train_labels,train_pred)))
+print("Test precision {:.4f} for gradient boosting".format(metrics.precision_score(test_labels,test_pred)))
+
+# plot feature importance
+
+# Plot feature importance
+plt.figure(dpi=600)
+feature_importance = clf.feature_importances_
+# make importances relative to max importance
+feature_importance = 100.0 * (feature_importance / feature_importance.max())
+sorted_idx = np.argsort(feature_importance)
+pos = np.arange(sorted_idx.shape[0]) + .5
+plt.subplot(1, 2, 2)
+plt.barh(pos, feature_importance[sorted_idx], align='center')
+#plt.yticks(pos, np.array(p_n)[sorted_idx])
+plt.xlabel('Relative Importance')
+plt.title('Variable Importance')
+plt.show()
+
+
+cv = StratifiedKFold(3)
+score_svm, permutation_scores_svm, pvalue_svm = permutation_test_score(clf, train_data, train_labels, scoring="accuracy", cv=cv, n_permutations=100, n_jobs=1)
+
+# %%
+plt.figure(dpi=600)
+n_classes=2
+plt.hist(permutation_scores_svm, 20, label='Permutation scores',
+         edgecolor='black')
+ylim = plt.ylim()
+plt.vlines(score_svm, ylim[0], ylim[1], linestyle='--', color='g', linewidth=3, label='Classification Score'' (pvalue {0:0.2f})'.format(pvalue_svm))
+plt.vlines(1.0 / n_classes, ylim[0], ylim[1], linestyle='--',color='k', linewidth=3, label='Luck')
+#plt.plot(2 * [score], ylim, '--g', linewidth=3,
+#         label='Classification Score'
+#         ' (pvalue %s)' % pvalue)
+#plt.plot(2 * [1. / n_classes], ylim, '--k', linewidth=3, label='Luck')
+
+plt.ylim(ylim)
+plt.legend()
+plt.xlabel('Score')

@@ -6,6 +6,10 @@ __pycache__/
 # seizure prediction data
 seizurePrediction_data/
 
+# figures
+*.png
+*.svg
+
 # C extensions
 *.so
 
