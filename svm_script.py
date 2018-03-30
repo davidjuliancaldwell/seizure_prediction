@@ -1,10 +1,10 @@
 # %%
 #############################################################################
 # setup working environement
-% cd C:\Users\djcald.CSENETID\SharedCode\seizurePrediction
+#% cd C:\Users\djcald.CSENETID\SharedCode\seizurePrediction
 #% cd C:\Users\David\Research\seizure_prediction
 
-% matplotlib inline
+#% matplotlib inline
 import numpy as np
 import matplotlib.pyplot as plt
 import scipy as scipy
@@ -116,6 +116,7 @@ for ind_int in np.arange(0,num_patients):
     num_windows_random = np.arange(num_blocks)
     random_seq_arr = np.array([np.random.permutation(num_chans) for i in num_windows_random])
     random_seq_vec.append(random_seq_arr)
+
     # randomly shuffle test labels
     seizure_elec_shuff = np.repeat(seizure_elec,num_blocks,axis=1).T
     seizure_elec_shuff = np.array([seizure_elec_shuff[i,random_seq_arr[i,:]] for i in np.arange(num_blocks)])
@@ -150,11 +151,17 @@ for ind_int in np.arange(0,num_patients):
     if ind_int == 0:
         shuff_data_all = shuff_data.reshape((shuff_data.shape[0]*shuff_data.shape[1],shuff_data.shape[2]))
         seizure_elec_all = seizure_elec_shuff
+        random_seq_vec_stack = random_seq_arr.flatten() # djc add
+        subject_elec = (ind_int)*np.ones(random_seq_vec_stack.shape)
 
     shuff_data = shuff_data.reshape((shuff_data.shape[0]*shuff_data.shape[1],shuff_data.shape[2]))
 
     shuff_data_all = np.vstack((shuff_data_all,shuff_data))
     seizure_elec_all = np.hstack((seizure_elec_all,seizure_elec_shuff))
+    random_seq_vec_stack = np.hstack((random_seq_vec_stack,random_seq_arr.flatten())) # djc add
+    temp = random_seq_arr.flatten()
+
+    subject_elec = np.hstack((subject_elec,(ind_int)*np.ones(temp.shape)))
 
 # generator expression to make list of feature names
 add_feat = ['_mean','_skew','_kurtosis']
@@ -184,6 +191,11 @@ test_data = shuff_data_all[total_elecs-n_leave:,:]
 train_labels = seizure_elec_all[0:-n_leave]
 test_labels = seizure_elec_all[total_elecs-n_leave:]
 
+random_seq_vec_train = random_seq_vec_stack[0:-n_leave]
+random_seq_vec_test = random_seq_vec_stack[total_elecs-n_leave:]
+
+subject_elec_train = subject_elec[0:-n_leave]
+subject_elec_test = subject_elec[total_elecs-n_leave:]
 # demean the data
 #train_data_average = np.repeat(np.array([(np.mean(train_data,axis=0))]).T,train_data.shape[0],axis=1).T
 #test_data_average = np.repeat(np.array([(np.mean(train_data,axis=0))]).T,test_data.shape[0],axis=1).T
@@ -207,16 +219,14 @@ sample_weight = (train_labels.shape[0]/(2*np.bincount(train_labels==1)))
 keys = [0,1]
 sample_weight_dict = dict(zip(keys,sample_weight.T))
 
-param_grid_svm = [{'kernel': ['rbf'], 'gamma': [1e-3,1e-4],
-                     'C': [1, 10],'class_weight': ['balanced']},
-                    {'kernel': ['linear'], 'C': [1, 10],'class_weight': ['balanced']},
-                    {'kernel': ['poly'], 'C':[1,10], 'degree':[3,5],'gamma': [1e-3,1e-4],'class_weight': ['balanced']},
-                    {'kernel':['sigmoid'], 'C':[1,10], 'degree':[3,5],'gamma': [1e-3,1e-4],'class_weight': ['balanced']}]
+param_grid_svm = [{'kernel': ['rbf'], 'class_weight': ['balanced']},
+                    {'kernel': ['linear'], 'class_weight': ['balanced']},
+                    {'kernel': ['poly'], 'class_weight': ['balanced']},
+                    {'kernel':['sigmoid'], 'class_weight': ['balanced']}]
 cv = StratifiedKFold(5)
 
 svm_search = GridSearchCV(SVC(),param_grid = param_grid_svm,cv=cv,scoring='accuracy')
 svm_search.fit(train_data,train_labels)
-test_pred
 best_params = svm_search.best_params_
 svm_search.best_score_
 #
@@ -233,6 +243,7 @@ test_pred = svm_mod.predict(test_data)
 print("test precision: {:.4f} for {} kernel".format(metrics.precision_score(test_labels,test_pred),kernel))
 
 test_score_svm = svm_mod.decision_function(test_data)
+
 average_precision_svm = average_precision_score(test_labels, test_score_svm)
 
 print('Average precision-recall score: {0:0.2f}'.format(average_precision_svm))
@@ -247,8 +258,11 @@ sample_weight_array_test[test_labels==1] = sample_weight_test[1]
 fpr_svm, tpr_svm, _ = roc_curve(test_labels, test_score_svm,sample_weight=sample_weight_array_test)
 roc_auc_svm = roc_auc_score(test_labels,test_score_svm,sample_weight = sample_weight_array_test)
 
-print("AUC: {0:0.2f}".format(roc_auc_svm))
+# djc add
+np.savez('svm_elecs',train_pred=train_pred,train_labels=train_labels,test_pred=test_pred,test_labels=test_labels,random_seq_vec_test=random_seq_vec_test,random_seq_vec_train=random_seq_vec_train,random_seq_vec_stack=random_seq_vec_stack,subject_elec=subject_elec,subject_elec_train = subject_elec_train, subject_elec_test = subject_elec_test)
 
+print("AUC: {0:0.2f}".format(roc_auc_svm))
+# %%
 with sns.axes_style('darkgrid'):
     plt.figure(dpi=600)
     plt.xlabel('False Positive Rate')
@@ -259,8 +273,8 @@ with sns.axes_style('darkgrid'):
     plt.plot([0, 1], [0, 1], color='navy', lw=lw, linestyle='--')
     plt.ylim([0.0, 1.05])
     plt.xlim([0.0, 1.0])
-    plt.savefig('roc_svm')
-    plt.savefig('roc_svm.svg')
+    #plt.savefig('roc_svm')
+    #plt.savefig('roc_svm.svg')
 
 plt.figure(dpi=600)
 plt.xlabel('Recall')
@@ -270,8 +284,8 @@ plt.step(recall_svm, precision_svm, color='b', alpha=0.2,where='post')
 plt.fill_between(recall_svm, precision_svm, step='post', alpha=0.2,color='b')
 plt.ylim([0.0, 1.05])
 plt.xlim([0.0, 1.0])
-plt.savefig('precisionrecall_svm')
-plt.savefig('precisionrecall_svm.svg')
+#plt.savefig('precisionrecall_svm')
+#plt.savefig('precisionrecall_svm.svg')
 
 ##############################################################################
 # permutation testing
@@ -295,5 +309,5 @@ with sns.axes_style('dark'):
     plt.xlabel('Score')
     plt.xlim((0,1))
     plt.title('Permutation testing of SVM classifier')
-    plt.savefig('permutation_testing_svm')
-    plt.savefig('permutation_testing_svm.svg')
+    #plt.savefig('permutation_testing_svm')
+#    plt.savefig('permutation_testing_svm.svg')

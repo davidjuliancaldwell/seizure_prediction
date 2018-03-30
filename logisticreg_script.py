@@ -1,10 +1,10 @@
 # %%
 #############################################################################
 # setup working environement
-% cd C:\Users\djcald.CSENETID\SharedCode\seizurePrediction
+#% cd C:\Users\djcald.CSENETID\SharedCode\seizurePrediction
 #% cd C:\Users\David\Research\seizure_prediction
 
-% matplotlib inline
+#% matplotlib inline
 import numpy as np
 import matplotlib.pyplot as plt
 import scipy as scipy
@@ -116,6 +116,7 @@ for ind_int in np.arange(0,num_patients):
     num_windows_random = np.arange(num_blocks)
     random_seq_arr = np.array([np.random.permutation(num_chans) for i in num_windows_random])
     random_seq_vec.append(random_seq_arr)
+
     # randomly shuffle test labels
     seizure_elec_shuff = np.repeat(seizure_elec,num_blocks,axis=1).T
     seizure_elec_shuff = np.array([seizure_elec_shuff[i,random_seq_arr[i,:]] for i in np.arange(num_blocks)])
@@ -150,11 +151,18 @@ for ind_int in np.arange(0,num_patients):
     if ind_int == 0:
         shuff_data_all = shuff_data.reshape((shuff_data.shape[0]*shuff_data.shape[1],shuff_data.shape[2]))
         seizure_elec_all = seizure_elec_shuff
+        random_seq_vec_stack = random_seq_arr.flatten() # djc add
+        subject_elec = (ind_int)*np.ones(random_seq_vec_stack.shape)
 
     shuff_data = shuff_data.reshape((shuff_data.shape[0]*shuff_data.shape[1],shuff_data.shape[2]))
 
     shuff_data_all = np.vstack((shuff_data_all,shuff_data))
     seizure_elec_all = np.hstack((seizure_elec_all,seizure_elec_shuff))
+    random_seq_vec_stack = np.hstack((random_seq_vec_stack,random_seq_arr.flatten())) # djc add
+    temp = random_seq_arr.flatten()
+    subject_elec = np.hstack((subject_elec,(ind_int)*np.ones(temp.shape)))
+
+
 
 # generator expression to make list of feature names
 add_feat = ['_mean','_skew','_kurtosis']
@@ -183,6 +191,13 @@ train_data = shuff_data_all[0:-n_leave,:]
 test_data = shuff_data_all[total_elecs-n_leave:,:]
 train_labels = seizure_elec_all[0:-n_leave]
 test_labels = seizure_elec_all[total_elecs-n_leave:]
+
+random_seq_vec_train = random_seq_vec_stack[0:-n_leave]
+random_seq_vec_test = random_seq_vec_stack[total_elecs-n_leave:]
+
+
+subject_elec_train = subject_elec[0:-n_leave]
+subject_elec_test = subject_elec[total_elecs-n_leave:]
 
 # demean the data
 #train_data_average = np.repeat(np.array([(np.mean(train_data,axis=0))]).T,train_data.shape[0],axis=1).T
@@ -243,6 +258,8 @@ test_pred = best_log_model.predict(test_data)
 print("test precision: %.4f" % metrics.precision_score(test_labels,test_pred))
 
 test_score_best_log = best_log_model.decision_function(test_data)
+train_score_best_log = best_log_model.decision_function(train_data) # djc add
+
 average_precision_best_log = average_precision_score(test_labels, test_score_best_log)
 print('Average precision-recall score: {0:0.2f} '.format(average_precision_best_log))
 
@@ -255,6 +272,8 @@ precision_best_log, recall_best_log, _ = precision_recall_curve(test_labels, tes
 fpr_best_log, tpr_best_log, _ = roc_curve(test_labels, test_score_best_log,sample_weight=sample_weight_array_test)
 roc_auc_best_log = roc_auc_score(test_labels,test_score_best_log,sample_weight=sample_weight_array_test)
 
+# djc add
+np.savez('logreg_elecs',train_pred=train_pred,train_labels=train_labels,test_pred=test_pred,test_labels=test_labels,random_seq_vec_test=random_seq_vec_test,random_seq_vec_train=random_seq_vec_train,random_seq_vec_stack=random_seq_vec_stack,subject_elec=subject_elec,subject_elec_train = subject_elec_train, subject_elec_test = subject_elec_test)
 print("AUC: {0:0.2f}".format(roc_auc_best_log))
 with sns.axes_style('darkgrid'):
     plt.figure(dpi=600)
@@ -266,8 +285,8 @@ with sns.axes_style('darkgrid'):
     plt.plot([0, 1], [0, 1], color='navy', lw=lw, linestyle='--')
     plt.ylim([0.0, 1.05])
     plt.xlim([0.0, 1.0])
-    plt.savefig('roc_logistic_acc')
-    plt.savefig('roc_logistic_acc.svg')
+    #plt.savefig('roc_logistic_acc')
+    #plt.savefig('roc_logistic_acc.svg')
     #
 plt.figure(dpi=600)
 plt.xlabel('Recall')
@@ -277,8 +296,8 @@ plt.step(recall_best_log, precision_best_log, color='b', alpha=0.2,where='post')
 plt.fill_between(recall_best_log, precision_best_log, step='post', alpha=0.2,color='b')
 plt.ylim([0.0, 1.05])
 plt.xlim([0.0, 1.0])
-plt.savefig('precisionrecall_logistic_acc')
-plt.savefig('precisionrecall_logistic_acc.svg')
+#plt.savefig('precisionrecall_logistic_acc')
+#plt.savefig('precisionrecall_logistic_acc.svg')
 
 
 ###########################################################################
@@ -290,8 +309,8 @@ plt.xticks(())
 plt.yticks(())
 plt.colorbar(ticks=[-1, 0, 1], orientation='vertical')
 plt.title('Sparsity pattern and weights of features')
-plt.savefig('sparsity_regression_acc')
-plt.savefig('sparsity_regression_acc.svg')
+#plt.savefig('sparsity_regression_acc')
+#plt.savefig('sparsity_regression_acc.svg')
 
 ##############################################################################
 # permutation testing
@@ -316,5 +335,5 @@ plt.legend(loc='upper left')
 plt.xlabel('Score')
 plt.xlim((0,1))
 plt.title('Permutation testing of logistic regression classifier')
-plt.savefig('permutation_testing_logistic_acc')
-plt.savefig('permutation_testing_logistic_acc.svg')
+#plt.savefig('permutation_testing_logistic_acc')
+#plt.savefig('permutation_testing_logistic_acc.svg')

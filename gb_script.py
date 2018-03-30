@@ -1,10 +1,10 @@
 # %%
 #############################################################################
 # setup working environement
-% cd C:\Users\djcald.CSENETID\SharedCode\seizurePrediction
+#% cd C:\Users\djcald.CSENETID\SharedCode\seizurePrediction
 #% cd C:\Users\David\Research\seizure_prediction
 
-% matplotlib inline
+#% matplotlib inline
 import numpy as np
 import matplotlib.pyplot as plt
 import scipy as scipy
@@ -149,11 +149,17 @@ for ind_int in np.arange(0,num_patients):
     if ind_int == 0:
         shuff_data_all = shuff_data.reshape((shuff_data.shape[0]*shuff_data.shape[1],shuff_data.shape[2]))
         seizure_elec_all = seizure_elec_shuff
+        random_seq_vec_stack = random_seq_arr.flatten() # djc add
+        subject_elec = (ind_int)*np.ones(random_seq_vec_stack.shape)
+
 
     shuff_data = shuff_data.reshape((shuff_data.shape[0]*shuff_data.shape[1],shuff_data.shape[2]))
 
     shuff_data_all = np.vstack((shuff_data_all,shuff_data))
     seizure_elec_all = np.hstack((seizure_elec_all,seizure_elec_shuff))
+    random_seq_vec_stack = np.hstack((random_seq_vec_stack,random_seq_arr.flatten())) # djc add
+    temp = random_seq_arr.flatten()
+    subject_elec = np.hstack((subject_elec,(ind_int)*np.ones(temp.shape)))
 
 # generator expression to make list of feature names
 add_feat = ['_mean','_skew','_kurtosis']
@@ -183,6 +189,12 @@ test_data = shuff_data_all[total_elecs-n_leave:,:]
 train_labels = seizure_elec_all[0:-n_leave]
 test_labels = seizure_elec_all[total_elecs-n_leave:]
 
+random_seq_vec_train = random_seq_vec_stack[0:-n_leave]
+random_seq_vec_test = random_seq_vec_stack[total_elecs-n_leave:]
+
+
+subject_elec_train = subject_elec[0:-n_leave]
+subject_elec_test = subject_elec[total_elecs-n_leave:]
 # demean the data
 #train_data_average = np.repeat(np.array([(np.mean(train_data,axis=0))]).T,train_data.shape[0],axis=1).T
 #test_data_average = np.repeat(np.array([(np.mean(train_data,axis=0))]).T,test_data.shape[0],axis=1).T
@@ -215,7 +227,9 @@ cv = StratifiedKFold(5)
 
 est = ensemble.GradientBoostingClassifier(n_estimators=3000)
 # this may take some minutes
-gs_cv = GridSearchCV(est, param_grid,cv =cv, n_jobs=4,scoring='precision').fit(train_data, train_labels,sample_weight=sample_weight_array)
+gs_cv = GridSearchCV(est, param_grid,cv =cv,scoring='precision').fit(train_data, train_labels,sample_weight=sample_weight_array)
+
+#gs_cv = GridSearchCV(est, param_grid,cv =cv, n_jobs=4,scoring='precision').fit(train_data, train_labels,sample_weight=sample_weight_array)
 # best hyperparameter setting
 gs_cv.best_params_
 
@@ -237,6 +251,8 @@ print("Train precision {:.4f} for gradient boosting".format(metrics.precision_sc
 print("Test precision {:.4f} for gradient boosting".format(metrics.precision_score(test_labels,test_pred)))
 
 test_score_gb = clf.decision_function(test_data)
+train_score_gb = clf.decision_function(train_data) # djc add
+
 average_precision_gb = average_precision_score(test_labels, test_score_gb)
 # %%
 sample_weight_test = (test_labels.shape[0]/(2*np.bincount(test_labels==1)))
@@ -249,8 +265,10 @@ precision_gb, recall_gb, thresh_gb = precision_recall_curve(test_labels, test_sc
 fpr_gb, tpr_gb, _ = roc_curve(test_labels, test_score_gb,sample_weight=sample_weight_array_test)
 roc_auc_gb =  roc_auc_score(test_labels,test_score_gb,sample_weight=sample_weight_array_test)
 
+# djc add
+np.savez('gb_elecs',train_pred=train_pred,train_labels=train_labels,test_pred=test_pred,test_labels=test_labels,random_seq_vec_test=random_seq_vec_test,random_seq_vec_train=random_seq_vec_train,random_seq_vec_stack=random_seq_vec_stack,subject_elec = subject_elec, subject_elec_train = subject_elec_train, subject_elec_test = subject_elec_test)
 print("AUC: {0:0.2f}".format(roc_auc_gb))
-# %%
+
 with sns.axes_style('darkgrid'):
     plt.figure(dpi=600)
     plt.xlabel('False Positive Rate')
@@ -261,9 +279,8 @@ with sns.axes_style('darkgrid'):
     plt.plot([0, 1], [0, 1], color='navy', lw=lw, linestyle='--')
     plt.ylim([0.0, 1.05])
     plt.xlim([0.0, 1.0])
-    plt.savefig('roc_gb')
-    plt.savefig('roc_gb.svg')
-# %%
+    #plt.savefig('roc_gb_v2')
+    #plt.savefig('roc_gb_v2.svg')
 # plot feature importance
 # Plot feature importance
 plt.figure(dpi=600)
@@ -277,9 +294,9 @@ plt.barh(pos, feature_importance[sorted_idx], align='center')
 #plt.yticks(pos, np.array(data_features_name)[sorted_idx])
 plt.xlabel('Relative Importance')
 plt.title('Variable Importance')
-plt.savefig('gb_feat_import')
+#plt.savefig('gb_feat_import_v2')
 plt.show()
-# %%
+
 # what are the best features!
 top10 = np.argsort(np.abs(feature_importance ))[::-1][:10]
 best_features = [data_features_name[i] for i in top10]
@@ -289,7 +306,7 @@ for i,feat in enumerate(best_features):
 
 cv = StratifiedKFold(5)
 score_gb, permutation_scores_gb, pvalue_gb = permutation_test_score(clf, train_data, train_labels, scoring="accuracy", cv=cv, n_permutations=100, n_jobs=1)
-# %%
+
 with sns.axes_style('dark'):
     plt.figure(dpi=600)
     n_classes=2
@@ -306,5 +323,5 @@ with sns.axes_style('dark'):
     plt.xlabel('Score')
     plt.xlim((0,1))
     plt.title('Permutation testing of Gradient Boosting classifier')
-    plt.savefig('permutation_testing_gb')
-    plt.savefig('permutation_testing_gb.svg')
+#plt.savefig('permutation_testing_gb_v2')
+    #plt.savefig('permutation_testing_gb_v2.svg')
